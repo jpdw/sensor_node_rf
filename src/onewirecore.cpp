@@ -31,14 +31,14 @@ owd_t * onewire_devices;	/* pointer to array of owd_t elements */
  * - will be called during initialisation of the system
  * - function should completely initialise the 1-wire components
  */
-void onewire_setup(){
+void onewire_setup(bool wait_for_conversion){
 
     // start up the Dallas temperature sensor library and initiates a bus scan
     sensors.begin();
     // sets the dts library into non-blocking mode - calls for a conversion
     // will send a request to the device & then return -- we have to manage
     // a suitable delay and then retrieve the reading
-	sensors.setWaitForConversion(false);
+	sensors.setWaitForConversion(wait_for_conversion);
 
 	// create an array to hold address details for each device found
 	uint8_t d=sensors.getDeviceCount();

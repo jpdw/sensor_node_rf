@@ -1,0 +1,15 @@
+
+Memory usage
+
+:-BUILD---------:-PROGRAM-:-----RAM-:
+:-150115/225241 :   24498 :    1074 :
+:-150115/233012 :   24436 :    1053 :
+
+
+
+Problems:
+- Why does a Sender also think it's receiving data?? presumably it gets interupt
+  triggered then reads payload struct.  To repeat: Put Base Node into Sender mode
+  by taking HW_ROLE_PIN (Pin 23) *high*.
+  
+  

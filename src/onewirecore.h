@@ -14,7 +14,7 @@ struct owd_t {
 	float most_recent;		/* most recent reading */
 };
 
-extern void onewire_setup();
+extern void onewire_setup(bool wait_for_conversion = false);
 extern uint8_t onewire_device_count();
 extern void onewire_request_temps();
 //extern void onewire_read_temps(float *);

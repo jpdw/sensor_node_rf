@@ -6,39 +6,93 @@
  */
 
 
+
+// Power management
+#define power_adc_enable()      (PRR &= (uint8_t)~(1 << PRADC))
+#define power_adc_disable()     (PRR |= (uint8_t)(1 << PRADC))
+
+#define power_spi_enable()      (PRR &= (uint8_t)~(1 << PRSPI))
+#define power_spi_disable()     (PRR |= (uint8_t)(1 << PRSPI))
+
+#define power_usart0_enable()   (PRR &= (uint8_t)~(1 << PRUSART0))
+#define power_usart0_disable()  (PRR |= (uint8_t)(1 << PRUSART0))
+
 #include "target.h"
+#include "config.h"
+#include "build_info.h"
 
 // Mandatory includes
 #include <Arduino.h>
+#include "avr/io.h"
+#include "avr/sleep.h"
+#include "avr/wdt.h"
+#include "avr/power.h"
+#include "avr/eeprom.h"
 #include "SPI.h"
-#include "HardwareSerial.h"
-#include "U8glib.h"
-#include "console.h"
+#ifdef serial
+  #include "HardwareSerial.h"
+#endif
+#ifdef display
+  #include "oled.h"
+#endif
+#ifdef serial
+  #include "console.h"
+#endif
 #include "scheduler.h"
 #include "onewirecore.h"
+
+#ifdef network
+  #include "netcore.h"
+#endif
+
 #include "memoryfree.h"
 #include "radio.h"
+#include "eeprom_map.h"
+#include "role.h"
+#include "streamprint.h"
 
+// Declare additional external functions here
 extern void radio_loop();
 
+// Declare any local functions that are references before declaration
+void flash_led_blue();
 
+// Global operating mode flags
+bool mode_lowpower;       // if true, run lowpower variants of certain things
+bool mode_debug;          // if true, enable additional debugging output
+bool enable_oled;         // if true, enable oled output
+bool enable_ethr;         // if true, enable ethernet features
+bool enable_wdt_ticktock; // if true (& lowpower mode), flash led on wdt isr
+bool enable_send_led;     // if true, flash led on each send
 
+char timestamp[7] = {__BI__TIMESTAMP_STR};
+char datestamp[7] = {__BI__DATESTAMP_STR};
 
-// End of RF24 code
+role_e role;                                                            // The role of the current running sketch
+
+/*
+ * ISR for WDT
+ *
+ * Disable the WDT (it will be re-enabled later) & tick-tock if required
+ */
+ISR (WDT_vect)
+{
+    wdt_disable();  // disable watchdog
+    if(enable_wdt_ticktock){
+        flash_led_blue();
+    }
+}  // end of WDT_vect
 
 
 void flash_led(void);
 
-// control level of serial output
-bool debug_mode;
 
 unsigned long lt;
 
 #define INFO_DISP_SCHED_WIDE 5
 
-U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE|U8G_I2C_OPT_DEV_0);  // I2C / TWI
 
-
+#ifdef serial
 /*
  * showinfo
  * - show various system information
@@ -49,172 +103,63 @@ U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE|U8G_I2C_OPT_DEV_0);  // I2C / TWI
  *   - 1-wire devices
  */
 void showinfo(void){
-    uint8_t i;
+    // Abort if in lowpower mode (no serial)
+    if(mode_lowpower){return;}
 
-    Serial.println(F("SYSINFO::\n\n\rBuild: " __DATE__ " " __TIME__));
-
+    //
+    Serialprint("\nSYSINFO:\n\rBuild: %s/%s\n\r", datestamp, timestamp);
     radio_info();
 
-    /*
-    DateTime now = RTC.now();
+    // current millis
+    Serial.print(F("Device millis "));
+    Serial.print(millis());
 
-    // Show current time
-    Serial.println("Time:");
-    Serial.print(now.year(), DEC);
-    Serial.print('/');
-    Serial.print(now.month(), DEC);
-    Serial.print('/');
-    Serial.print(now.day(), DEC);
-    Serial.print(' ');
-    Serial.print(now.hour(), DEC);
-    Serial.print(':');
-    Serial.print(now.minute(), DEC);
-    Serial.print(':');
-    Serial.print(now.second(), DEC);
-    Serial.print("; since 2000 = ");
-    Serial.print(now.get());
-    Serial.print("s = ");
-    Serial.print(now.get() / 86400L);
-    Serial.println("d");
-    */
+    // last loop execution
+    Serial.print(F("  Loop u "));
+    Serial.println(lt);
 
-	// current millis
-	Serial.print(F("Device millis "));
-	Serial.print(millis());
+    // eeprom map version
+    uint8_t i = eeprom_read_byte((unsigned char*)EVM_MAP_VER);
+    Serialprint("Memory: \n\rEEPROM ver %d; RAM %d\n\r", i, free());
 
-	// last loop execution
-	Serial.print(F("  Loop u "));
-	Serial.println(lt);
+    // schedulers enabled
+    Serialprint("Schedulers:\r\n");
+    i=0;
+    do{
+        Serialprint(" S%d ", i);
+        if(scheduler_isenabled(i)){
+            Serialprint("E");
+        }else{
+            Serialprint("D");
+        }
 
-	/*
-	// eeprom map version
-	i=EEPROM.read(evm_map_ver);
-	Serial.print(F("Memory:\n\rEEPROM ver "));
-	Serial.print(i,DEC);
-	*/
-
-	// freememory
-    Serial.print(F("RAM "));
-    Serial.println(free());
-
-
-	// schedulers enabled
-	Serial.println(F("Schedulers:"));
-	i=0;
-	do{
-		Serial.print(F(" S"));
-		Serial.print(i,DEC);
-		Serial.print(F(" "));
-		if(scheduler_isenabled(i)){
-			Serial.print(F("E"));
-		}else{
-			Serial.print(F("D"));
-		}
-
-		if((i+1) % INFO_DISP_SCHED_WIDE  == 0){
-			Serial.println("");
-		}else{
-			Serial.print("  ");
-		}
-	} while (++i<FIXED_SCHEDULED_SLOTS);
-	if((i)% INFO_DISP_SCHED_WIDE !=0){
-		Serial.println("");
-	}
-
-  // 1-wire devices
-  onewire_addresses();
-
-  // Radio-related info
-  radio_details();
-
-}
-
-
-
-static char tmp[7]="123456";
-static char tmp2[7]="      ";
-static char tmp3[11]="          ";
-static char tmp4[7]="      ";
-void draw() {
-    // display title at top of screen
-    u8g.setPrintPos(0, 12);
-    u8g.print(F("Latest:"));
-
-    // display display loop count in upper right
-    u8g.setPrintPos(80,12);
-    u8g.print(tmp);
-
-    // display local temperature in lower right
-    u8g.setPrintPos(0,46);
-    u8g.print(F("Here:"));
-    u8g.setPrintPos(80,46);
-    u8g.print(tmp2);
-
-    // display a received time value upper-mid right
-    if(radio_is_running() == true){
-        u8g.setPrintPos(48,28);
-        u8g.print(tmp3);
+        if((i+1) % INFO_DISP_SCHED_WIDE  == 0){
+            Serialprint("\r\n");
+        }else{
+            //Serial.print("  ");
+            Serialprint("  \r\n");
+        }
+    } while (++i<FIXED_SCHEDULED_SLOTS);
+    if((i)% INFO_DISP_SCHED_WIDE !=0){
+        Serialprint("\r\n");
     }
 
-    // display a received temperature value lower-mid right
-    if(remote_has_temperature() == true){
-        u8g.setPrintPos(0,64);
-        u8g.print(F("There:"));
-        u8g.setPrintPos(80,64);
-        u8g.print(tmp4);
-    }
-}
+    // 1-wire devices
+    onewire_addresses();
 
-void print_test(void){
-    static unsigned long start;
-    static unsigned long last;
+    // Radio-related info
+    radio_details();
 
-    //char * t, * t2, *t3, *t4;
-    //t=dtostrf(last,6,0,tmp);
-    dtostrf(last,6,0,tmp);
-    //t2=dtostrf(onewire_mostrecentvalue(0),6,2,tmp2);
-    dtostrf(onewire_mostrecentvalue(0),6,2,tmp2);
-    if(radio_is_running() == true){
-        //t3=dtostrf(radio_payload_time(),10,0,tmp3);
-        dtostrf(radio_payload_time(),10,0,tmp3);
-    }
-    if(remote_has_temperature() == true){
-        //t4=dtostrf(remote_temperature_value(),6,2,tmp4);
-        dtostrf(remote_temperature_value(),6,2,tmp4);
-    }
+#ifdef network
+    netcore_ifconfig();
+#endif
 
-    // we don't intend to change the font to we can do it once here
-    // rather than inside the picture loop
-    u8g.setFont(u8g_font_unifontr);
-
-    start = micros();
-
-    // clear the radio data ready
-    // - this might have a race condition... might need to be done differently
-    radio_data_ready = false;
-
-    u8g.firstPage();
-    do {
-        draw();
-    } while( u8g.nextPage() );
-
-    last = micros() - start;
 
 }
 
-void d2(void){
-    u8g.setFont(u8g_font_unifontr);
-    u8g.setPrintPos(0,14);
-    u8g.print(F("Build: "));
-    u8g.setPrintPos(0,30);
-    u8g.print(__DATE__ " " __TIME__);
-}
-void display_message_bootup(void){
-    u8g.firstPage();
-    do {
-      d2();
-    } while( u8g.nextPage() );
-}
+#endif
+
+
 
 /*
  * callback triggered to request temperature readings
@@ -234,12 +179,20 @@ void cb_temp_requests_ready(){
     //send_temperature(onewire_devices,onewire_device_count());
 }
 
+#ifdef display
 /* Refresh OLED display
  *
  */
 void cb_display_refresh(){
-    print_test();
+    //if(!enable_oled){
+    //    return;
+    //}
+
+    render_display_main();
 }
+
+#endif
+
 /*
  * Watchdog to trigger every 1 minute
  */
@@ -256,6 +209,11 @@ void flash_led(){
     digitalWrite(HW_STATUS_LED_PIN, led_state);
 }
 
+void flash_led_blue(){
+    static bool led_state;
+    led_state=!led_state;
+    digitalWrite(HW_PWM_RGB_BLUE, led_state);
+}
 
 /*
  * Generic place to test stuff
@@ -264,12 +222,16 @@ void test(){
 }
 
 /*
- * Debug function
- *
  * Toggle debug mode: true/false
  */
 void debug(){
-    debug_mode = !debug_mode;
+    mode_debug = !mode_debug;
+    Serial.print("Debug mode ");
+    if(mode_debug == true){
+        Serial.println(F("enabled"));
+    }else{
+        Serial.println(F("disabled"));
+    }
 }
 
 
@@ -277,64 +239,245 @@ void show_sensors(){
     onewire_debug();
 }
 
-void setup(){
+/*
+ * power_management
+ *
+ * Configure power-usage related options such as en/dis processor feature,
+ * en/dis port modes,
+ *
+ * Also set boolean flags that to en/dis related code paths so as to avoid
+ * executing code that would have no affect due to being related to hardware or
+ * features that have been disabled.
+ *
+ * Function to be called for either build-time config and will en/dis as
+ * appropriate
+ */
 
-    display_message_bootup();
-    Serial.begin(115200);
+void power_management(void){
+    // power management
 
-    // disable debug mode by default -- use debg to enable
-    debug_mode = false;
+    // Disable ADC & analog comparator as these are not used by either config
+    //previousADCSRA = ADCSRA;
+    ADCSRA &= ~(1<<ADEN); //Disable ADC
+    ACSR = (1<<ACD); //Disable the analog comparator
+    power_adc_disable(); // disable adc (power.h)
 
-    pinMode(HW_STATUS_LED_PIN, OUTPUT);
+    // Disable digital inputs on ADC1-5 ( 4 & 5 are I2C so need to check if this still works with Dig In disabled)
+    // Leave ADC0 as that is mode pin -- at the moment !!!!
+    DIDR0 = 0x3E; //Disable digital input buffers on all ADC0-ADC5 pins
+#ifdef opt_onewire
+    DIDR1 = (0<<AIN1D)|(1<<AIN0D); //Disable digital input buffer on AIN0 (leave AIN1 enabled for 1-wire)
+#else
+    DIDR1 = (1<<AIN1D)|(1<<AIN0D); //Disable digital input buffer on AIN0 & AIN1
+#endif
 
+    // timer1 and timer2 are not currently used at all => disable!
+    power_timer1_disable();
+    power_timer2_disable();
+
+    // unless "display" is enabled, disable twi
+#ifdef display
+    power_twi_enable();
+    enable_oled=true;
+#else
+    power_twi_disable();
+    enable_oled=false;
+#endif
+
+#ifdef serial
+    // ensure usart is powered up
+#else
+    // unpower usart
+#endif
 
     /*
-    // initialise eeprom
-    uint8_t ver=EEPROM.read(evm_map_ver);
-    if (ver==255){
-        Serial.println(F("Bad eeprom version, resetting"));
-        //factory_reset();
-        resetFunc();
-    }
-    */
+     * determine which power-down mode to use -- basically
+     * defined by whether we have serial or not
+     *
+     * - if build has serial included the lowest we can go is "IDLE" (keep usart running)
+     * - otherwise
+     *   - if this is base_mode, INT0 is needed to interrupt on receipt of radio traffic
+     *   - otherwise
+     *     - sleep max (timer still runs, triggers sensor refresh & send)
+     */
 
-    // run various module setups
-    //netcore_setup();
+#ifdef serial
+    set_sleep_mode (SLEEP_MODE_IDLE); // prepare for powerdown
+#else
+#ifdef base_node
+    set_sleep_mode (SLEEP_MODE_ADC); // prepare for powerdown
+#else
+    set_sleep_mode (SLEEP_MODE_PWR_DOWN);
+#endif
+#endif
 
-    //radio_setup();
 
+#ifdef lowpower
+    // clear various "reset" flags
+    MCUSR = 0;
+    // allow changes, disable reset, enable Watchdog interrupt
+    WDTCSR = bit (WDCE) | bit (WDE);
+    // set interval (see datasheet p55)
+    WDTCSR = bit (WDIE) | bit (WDP2) | bit (WDP1);    // 128K cycles = approx 1 second
+    wdt_reset();  // start watchdog timer
 
-    onewire_setup();
-    scheduler_setup();
-    console_setup();
+    //sleep mode set above as appropriate:
+    //set_sleep_mode (SLEEP_MODE_PWR_DOWN); // prepare for powerdown
+    //sleep_enable();
+#endif
 
-    // initialise & start the console
-    //console_register("icfg",&netcore_ifconfig);
-    //console_register("fact",&factory_reset);
-    //console_register("web",&cb_request_temp_retrieval);
-    console_register("info",&showinfo);
-    console_register("debg",&debug);
-    console_register("sens",&show_sensors);
-    //console_register("print",&print_test);
-    //console_register("xaph",&xap_send_hbeat);
-    console_register("call",&radio_loop);
-    console_register("run",&scheduler_run);
-    console_register("stop",&scheduler_stop);
-
-    console_start();
-
-    radio_setup();
-
-    showinfo();
-
-    // start certain scheduler jobs
-    scheduler_run();
 
 }
 
 
+void setup(){
+
+    set_role_mode();
+
+    // set default operating flags
+    mode_debug = false;     // debug disabled (debg to enable)
+    enable_send_led = false; // flash on send
+
+#ifdef lowpower
+    mode_lowpower = true;  // lowpower mode by default
+#else
+    mode_lowpower = false; // lowpower disabled by default
+#endif
+
+    /*
+     * From this point on, setup might set different options
+     * depending on whether mode_lowpower is true or false.
+     *
+     * This is now a run-time changeable value to allow a remote
+     * node to have it's power profile changed dynamically without
+     * needing to be re-installed
+     */
+
+#ifdef display
+    // If display present, display bootup version info
+    render_display_bootup();
+#endif
+
+    // Set up output pins for status LEDs
+    pinMode(HW_STATUS_LED_PIN, OUTPUT);
+    pinMode(HW_PWM_RGB_RED, OUTPUT);
+
+    // Call sub-function to set-up power-related options
+    power_management();
+
+#ifdef network
+    // run various module setups
+    netcore_setup();
+#endif
+
+    // start onewire
+    // for lowpower mode, start it in 'blocking mode' (true)
+    // for non-lowpower mode, start it in 'non-blocking mode' (false)
+    // as mode_lowpower=true for lowpower mode, passing mode flag is ok for both
+    onewire_setup(mode_lowpower);
+
+    // the main scheduler is not used in lowpower mode, so only init if = false
+    if(!mode_lowpower){
+        scheduler_setup();
+    }
+
+#ifdef serial
+    // start serial and console if not in lowpower mode
+    if(!mode_lowpower){
+        Serial.begin(115200);
+
+        console_setup();
+        // initialise & start the console
+        //console_register("icfg",&netcore_ifconfig);
+        //console_register("fact",&factory_reset);
+        //console_register("web",&cb_request_temp_retrieval);
+        console_register("info",&showinfo);
+        console_register("debg",&debug);
+        console_register("sens",&show_sensors);
+        //console_register("print",&print_test);
+        //console_register("xaph",&xap_send_hbeat);
+        console_register("call",&radio_loop);
+        console_register("run",&scheduler_run);
+        console_register("stop",&scheduler_stop);
+
+        console_start();
+    }
+#endif
+
+
+    // start the radio
+    radio_setup();
+
+    if(!mode_lowpower){
+#ifdef serial
+        // display info to serial
+        showinfo();
+#endif
+        // start certain scheduler jobs (not in lowpower)
+        scheduler_run();
+    }
+}
+
+#ifdef lowpower
+// Simpler variant of loop() for ISR testing
 void loop(){
-unsigned long last;
+    static int counter=0;
+
+    // disable ADC
+    ADCSRA = 0;
+
+    power_adc_disable(); // ADC converter
+    //power_spi_disable(); // SPI
+    power_usart0_disable();// Serial (USART)
+    //power_timer0_disable();// Timer 0
+    power_timer1_disable();// Timer 1
+    power_timer2_disable();// Timer 2
+    power_twi_disable(); // TWI (I2C)
+
+    // clear various "reset" flags
+    MCUSR = 0;
+    // allow changes, disable reset
+    WDTCSR = bit (WDCE) | bit (WDE);
+    // set interrupt mode and an interval
+    WDTCSR = bit (WDIE) | bit (WDP2) | bit (WDP1);    // set WDIE, and 1 seconds delay
+    wdt_reset();  // pat the dog
+
+    set_sleep_mode (SLEEP_MODE_PWR_DOWN);
+    noInterrupts ();           // timed sequence follows
+    sleep_enable();
+
+    // turn off brown-out enable in software
+    MCUCR = bit (BODS) | bit (BODSE);
+    MCUCR = bit (BODS);
+    interrupts ();             // guarantees next instruction executed
+    sleep_cpu ();
+
+    // cancel sleep as a precaution
+    sleep_disable();
+
+    // we get here after the WDT wakes the processor
+
+    counter++;
+
+    if(counter>10){
+        if(enable_send_led){
+            flash_led();
+        }
+        onewire_request_temps();
+        onewire_read_temps();
+        if(enable_send_led){
+            flash_led();
+        }
+        radio_loop();
+        counter=0;
+    }
+
+}
+
+#else
+
+void loop(){
+unsigned long last=0;
 
 	/*
 	 * Run the loop
@@ -343,19 +486,24 @@ unsigned long last;
 
     do {
         // give various modules an execution slot
-        //netcore_loop();
+#ifdef network
+        netcore_loop();
+#endif
         scheduler_loop();
-        //radio_loop();
 
+#ifdef serial
         // handle console
         console_handle_received_command();	// process command received completely
         console_handle_serial_reception();	// process new chars received on serial
+#endif
 
         lt=micros()-last; // millis for last run
         last=micros();
+
     } while(1);
 
 }
+#endif
 
 
 /*

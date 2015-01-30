@@ -10,33 +10,27 @@
 #include "RF24.h"
 #include "printf.h"
 
+// Get hardware pin definition for target board
+#include "target.h"
+
+#include "role.h"
+
 extern float onewire_mostrecentvalue(int);
 extern void cb_check_radio(void);
 
+const char* role_friendly_name[] = { "invalid", "Sender", "Receiver"};  // The debug-friendly names of those roles
 
-// this external flag indicates whether or not to spew to serial
-extern bool debug_mode;
+
+// external flag - whether to output debug info
+extern bool mode_debug;
 
 bool radio_data_ready;
 
-/* === RF Hardware connections == 9, 10
- *     Like many of the examples, I'm using Arduino 9, 10
- *     (ATmega 15 & 16 respectively) as well as SPI MISO/MOSI/SCK
- *
- *     The other pin we are using is DIG2 (ATmega pin 4) for INT0 in the code lower down
- *
- *     Comment mentioning 7 & 8 is copied from TMRh20 example ... doesn't look right!
- */
-// Hardware configuration
-RF24 radio(9,10);          // Set up nRF24L01 radio on SPI bus plus pins 7 & 8
+// *     The other pin we are using is DIG2 (ATmega pin 4) for INT0 in the code lower down
+// Set up nRF24L01+ radio on SPI bus plus EN/SS pins as defined for target board
+RF24 radio(HW_SPI_EN_RF24,HW_RF24_DIRN_PIN);
 
 
-/* === Role pin in original source == 7.  I'm using it already so in the code
- *     here this is now EIGHT 8.  This is ATmega328P pin 14 and is currently
- *     unused on all 3 of my target boards
- */
-const short role_pin = 8;  // sets the role of this unit in hardware.  Connect to GND to be the 'pong' receiver
-                           // Leave open to be the 'ping' transmitter
 
 // Start of more RF24 code
 
@@ -45,13 +39,6 @@ byte address[][5] = { 0xCC,0xCE,0xCC,0xCE,0xCC , 0xCE,0xCC,0xCE,0xCC,0xCE};
 
 // Role management
 
-// Set up role.  This sketch uses the same software for all the nodes in this
-// system.  Doing so greatly simplifies testing.  The hardware itself specifies
-// which node it is.
-// This is done through the role_pin
-typedef enum { role_sender = 1, role_receiver } role_e;                 // The various roles supported by this sketch
-const char* role_friendly_name[] = { "invalid", "Sender", "Receiver"};  // The debug-friendly names of those roles
-role_e role;                                                            // The role of the current running sketch
 
 static uint32_t message_count = 0;
 
@@ -72,28 +59,17 @@ Payload payload;
 // Copied from pingpair_irq "setup()"
 // - removed lines that are already dealt with in my setup (start serial etc)
 
+
 void radio_setup(){
-
-    printf_begin();
-
-
-    pinMode(role_pin, INPUT);                        // set up the role pin
-    digitalWrite(role_pin,HIGH);                     // Change this to LOW/HIGH instead of using an external pin
-    delay(20);                                       // Just to get a solid reading on the role pin
-
-    if ( digitalRead(role_pin) )                    // read the address pin, establish our role
-        role = role_sender;
-    else
-        role = role_receiver;
 
     printf_begin();
 
     // Setup and configure rf radio
     radio.begin();
     //radio.setPALevel(RF24_PA_LOW);
-    radio.enableAckPayload();                         // We will be using the Ack Payload feature, so please enable it
-    radio.enableDynamicPayloads();                    // Ack payloads are dynamic payloads
-                                                    // Open pipes to other node for communication
+    radio.enableAckPayload();           // We will be using the Ack Payload feature, so please enable it
+    radio.enableDynamicPayloads();      // Ack payloads are dynamic payloads
+                                        // Open pipes to other node for communication
     if ( role == role_sender ) {                      // This simple sketch opens a pipe on a single address for these two nodes to
         radio.openWritingPipe(address[0]);             // communicate back and forth.  One listens on it, the other talks to it.
         radio.openReadingPipe(1,address[1]);
@@ -106,7 +82,8 @@ void radio_setup(){
     }
 
     delay(50);
-    attachInterrupt(0, cb_check_radio, LOW);             // Attach interrupt handler to interrupt #0 (using pin 2) on BOTH the sender and receiver
+    // Attach interrupt handler to interrupt #0
+    attachInterrupt(INT_REF_RF24, cb_check_radio, LOW);
 
     // initialise payload
     payload.time = 0;
@@ -131,6 +108,13 @@ unsigned long radio_payload_time(){
     return(payload.time);
 }
 
+bool role_is_receiver(void){
+    if(role == role_receiver){
+        return true;
+    }else{
+        return false;
+    }
+}
 // return a 'true' if there is 'anything' in payload other than the init value
 bool remote_has_temperature(void){
     return( (payload.temperature != -999) );
@@ -148,7 +132,7 @@ void cb_check_radio(void){
     bool tx,fail,rx;
     radio.whatHappened(tx,fail,rx);                     // What happened?
 
-    if(debug_mode == true) {
+    if(mode_debug == true) {
         if ( tx ) {                                         // Have we successfully transmitted?
             if ( role == role_sender ){   printf("Send:OK\n\r"); }
             if ( role == role_receiver ){ printf("Ack Payload:Sent\n\r"); }
@@ -164,7 +148,7 @@ void cb_check_radio(void){
 
         if ( role == role_sender ) {                      // If we're the sender, we've received an ack payload
             radio.read(&message_count,sizeof(message_count));
-            if(debug_mode){
+            if(mode_debug){
                 printf("Ack:%lu\n\r",message_count);
             }
         }
@@ -172,7 +156,7 @@ void cb_check_radio(void){
 
         if ( role == role_receiver ) {                    // If we're the receiver, we've received a time message
             radio.read( &payload, sizeof(Payload) );
-            if(debug_mode){
+            if(mode_debug){
                 printf("Got payload %lu, ~ %d\n\r", payload.time, ((int)payload.temperature));
             }
 
@@ -202,7 +186,7 @@ void radio_loop() {
     payload.num_colors = 0;      // unused element in struct
     payload.temperature =  onewire_mostrecentvalue(0); // latest temperature
 
-    if(debug_mode){
+    if(mode_debug){
         printf("Now sending %lu, ~%d\n\r",time, (int8_t)payload.temperature);
     }
     radio.startWrite( &payload, sizeof(Payload) ,0);
@@ -217,11 +201,11 @@ void radio_loop() {
  * RF24/TMRh24 library with a few extras
  */
 void radio_info(void){
-    printf("ROLE: %s\n\r",role_friendly_name[role]);
+    printf("Role: %s\n\r",role_friendly_name[role]);
 }
 
 void radio_details(void){
-    printf("RF count since last boot: %lu\n\r",message_count);
+    printf("RF since boot: %lu\n\r",message_count);
     radio.printDetails();
 }
 

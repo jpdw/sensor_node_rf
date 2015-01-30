@@ -24,7 +24,7 @@
  *
  * This schema also reserves PC4/PC5 for I2C.
  * Leaves the following Arduino (atmega) I/O available:
- *   A0 (PC0), A1 (PC1), A2 (PC2), A3 (PC3)
+ *   A1 (PC1), A2 (PC2), A3 (PC3)
  *
  * If another INT pin is needed: Move PWM Red from #3 to #9; Move RF24 EN from #9 to #A3
  */
@@ -35,6 +35,8 @@
 #define HW_ONEWIRE_PIN 7
 // Dig O/P used to Enable SPI to 2.4GHz RF NB radio link: Port PB1, ARD#9, Pin 15
 #define HW_SPI_EN_RF24 9
+// Dig O/P used to set RF direction mode (PTX/PRX): Port PB2, ARD#10, Pin 16
+#define HW_RF24_DIRN_PIN 10
 // Dig O/P used to Enable SPI to ethernet module: Port PB0, ARD#8, Pin 14
 #define HW_SPI_EN_ETHERNET 8
 // Dig O/P used to PWM Red: Port PD3, ARD#3, Pin 5
@@ -43,8 +45,12 @@
 #define HW_PWM_RGB_GREEN 5
 // Dig O/P used to PWM Blue: Port PD6, ARD#6, Pin 12
 #define HW_PWM_RGB_BLUE 6
+// Dig I/P to indicate application role: Port PC0, ARD#A0, Pin 23
+#define HW_ROLE_PIN A0
 // Dig I/P for hardware interrupt (used by RF24)
 #define HW_INT0 2
+// Hardware Interupt reference number for RF24 Int
+#define INT_REF_RF24 0
 
 
 #endif /* TARGET_H_ */

@@ -17,6 +17,8 @@ extern bool radio_is_running(void);
 extern unsigned long radio_payload_time(void);
 extern float remote_temperature_value(void);
 extern bool remote_has_temperature(void);
+extern bool role_is_receiver(void);
+
 
 extern bool radio_data_ready;   /* indicates radio data in payload from ISR */
 

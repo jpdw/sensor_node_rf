@@ -18,6 +18,8 @@
  */
 
 #include "target.h"
+#include "config.h"
+
 #include <Arduino.h>
 #include "Scheduler.h"
 
@@ -35,13 +37,14 @@ struct sched_t {
 // Create a fixed-size array to hold schedule definitions (FIXED_SCHEDULED_SLOTS is defined in the .h)
 sched_t scheduler[FIXED_SCHEDULED_SLOTS];
 #define DEFAULT_WEBSUBMIT_INTERVAL 5000
-#define DEFAULT_LEDFLASH_INTERVAL 1000
+#define DEFAULT_LEDFLASH_INTERVAL 2000
 #define DEFAULT_RETRVTEMP_INTERVAL 750 /* should be 750 */
 #define DEFAULT_SENDHBEAT_INTERVAL 10000 /* 10 seconds */
 
 #define DEFAULT_10SECOND_INTERVAL 10000
 #define DEFAULT_3SECOND_INTERVAL 3000
 #define DEFAULT_2SECOND_INTERVAL 2000
+#define DEFAULT_1SECOND_INTERVAL 1000
 
 // Define some extern functions here that are required for the slots below
 // (this is a messy way to do it... should really #include the correct .h files...)
@@ -49,7 +52,9 @@ extern void flash_led();
 extern void cb_request_temp_retrieval();
 extern void cb_temp_requests_ready();
 extern void cb_1mwd();
+#ifdef display
 extern void cb_display_refresh();
+#endif
 extern void radio_loop();
 
 
@@ -105,17 +110,17 @@ void scheduler_setup(){
 	millis_now=millis();
 
 	// Scheduler 0 : LED blink
-	//scheduler[0].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval ) ;
-	scheduler[1].fScheduler_0= ( fSCHED0_allzero);
+	scheduler[0].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval ) ;
+	//scheduler[1].fScheduler_0= ( fSCHED0_allzero);
 	scheduler[0].interval=DEFAULT_LEDFLASH_INTERVAL;
 	scheduler[0].next_event=millis_now+DEFAULT_LEDFLASH_INTERVAL;
 	scheduler[0].callback=&flash_led;
 
-	// Scheduler 1 : Web submit
+	// Scheduler 1 : Read temperatures
 	scheduler[1].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval ) ;
 	//scheduler[1].fScheduler_0= ( fSCHED0_allzero);
-	scheduler[1].interval=DEFAULT_WEBSUBMIT_INTERVAL;
-	scheduler[1].next_event=millis_now+DEFAULT_WEBSUBMIT_INTERVAL;
+	scheduler[1].interval=DEFAULT_1SECOND_INTERVAL;
+	scheduler[1].next_event=millis_now+DEFAULT_1SECOND_INTERVAL;
 	scheduler[1].callback=&cb_request_temp_retrieval;
 
 	// Scheduler 2 : Retrieve temperature reading
@@ -124,39 +129,43 @@ void scheduler_setup(){
 	scheduler[2].next_event=0;
 	scheduler[2].callback=&cb_temp_requests_ready;
 
-	// Scheduler 3 : Send heartbeat(s)
-	//scheduler[3].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
-	scheduler[3].fScheduler_0= ( fSCHED0_allzero);
-	scheduler[3].interval=DEFAULT_SENDHBEAT_INTERVAL;
-	scheduler[3].next_event=0;
-	//scheduler[3].callback=&send_hbeat;
+    // Scheduler 3 : Send heartbeat(s)
+    //scheduler[3].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
+    scheduler[3].fScheduler_0= ( fSCHED0_allzero);
+    scheduler[3].interval=DEFAULT_SENDHBEAT_INTERVAL;
+    scheduler[3].next_event=0;
+    //scheduler[3].callback=&send_hbeat;
 
-	// Scheduler 4 : Scan hardware / Update environment
-	//scheduler[4].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
-	scheduler[4].fScheduler_0= ( fSCHED0_allzero);
-	scheduler[4].interval=120000;
-	scheduler[4].next_event=0;
-	//scheduler[4].callback=&xap_send_hbeat;
+    // Scheduler 4 : Scan hardware / Update environment
+    //scheduler[4].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
+    scheduler[4].fScheduler_0= ( fSCHED0_allzero);
+    scheduler[4].interval=120000;
+    scheduler[4].next_event=0;
+    //scheduler[4].callback=&xap_send_hbeat;
 
-	// Scheduler 5 : Spare
-	scheduler[5].fScheduler_0= ( fSCHED0_allzero);
+    // Scheduler 5 : Spare
+    scheduler[5].fScheduler_0= ( fSCHED0_allzero);
 
-	// Scheduler 6 : Spare
-	scheduler[6].fScheduler_0= ( fSCHED0_allzero);
+    // Scheduler 6 : Spare
+    scheduler[6].fScheduler_0= ( fSCHED0_allzero);
 
-	// Scheduler 7 : RF Send Ping
-	scheduler[7].fScheduler_0= ( fSCHED0_allzero);
+    // Scheduler 7 : RF Send Ping
+    scheduler[7].fScheduler_0= ( fSCHED0_allzero);
     //scheduler[7].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
-    scheduler[7].interval=DEFAULT_2SECOND_INTERVAL;
+    scheduler[7].interval=DEFAULT_1SECOND_INTERVAL;
     scheduler[7].next_event=millis_now+DEFAULT_3SECOND_INTERVAL;
     scheduler[7].callback=&radio_loop;
 
     // Scheduler 8 : Refresh OLED display
+#ifdef display
     //scheduler[8].fScheduler_0= ( fSCHED0_allzero);
     scheduler[8].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
-    scheduler[8].interval=DEFAULT_2SECOND_INTERVAL;
-    scheduler[8].next_event=millis_now+DEFAULT_2SECOND_INTERVAL;
+    scheduler[8].interval=DEFAULT_1SECOND_INTERVAL;
+    scheduler[8].next_event=millis_now+DEFAULT_1SECOND_INTERVAL;
     scheduler[8].callback=&cb_display_refresh;
+#else
+    scheduler[8].fScheduler_0= ( fSCHED0_allzero);
+#endif
 
 	// Scheduler 9 : Spare
 	scheduler[9].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
@@ -168,7 +177,6 @@ void scheduler_setup(){
 
 void scheduler_run(){
     unsigned long millis_now=millis();
-    //millis_now=millis();
     scheduler[7].fScheduler_0= ( fSCHED0_enabled | fSCHED0_interval );
     scheduler[7].next_event=millis_now+DEFAULT_3SECOND_INTERVAL;
 
