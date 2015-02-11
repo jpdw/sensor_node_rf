@@ -9,6 +9,8 @@
 #include "nRF24L01.h"
 #include "RF24.h"
 #include "printf.h"
+#include "avr/eeprom.h"
+#include "eeprom_map.h"
 
 // Get hardware pin definition for target board
 #include "target.h"
@@ -48,7 +50,6 @@ struct Payload
   int num_colors;         // colour density factor in hsb-fadearound
   int animation_delay;    // delay factor  in hsb-fadearound
   float temperature;      // latest measured temperature
-  //bool ready;           // set when new value received; cleared on use
 };
 Payload payload;
 
@@ -66,6 +67,14 @@ void radio_setup(){
 
     // Setup and configure rf radio
     radio.begin();
+    // Get radio channel from eeprom if valid (or set eeprom to default)
+    uint8_t rf_channel = eeprom_read_byte((unsigned char*)EVM_RF_CHNNL);
+    if (rf_channel <=127){
+        radio.setChannel(rf_channel);
+    }else{
+        eeprom_write_byte((unsigned char*)EVM_RF_CHNNL,0x4c);
+    }
+
     //radio.setPALevel(RF24_PA_LOW);
     radio.enableAckPayload();           // We will be using the Ack Payload feature, so please enable it
     radio.enableDynamicPayloads();      // Ack payloads are dynamic payloads

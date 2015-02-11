@@ -117,5 +117,9 @@ void onewire_addresses(){
 }
 
 float onewire_mostrecentvalue(int index){
-    return(onewire_devices[index].most_recent);
+    if(index >= sensors.getDeviceCount()){
+        return 0;
+    }else{
+        return(onewire_devices[index].most_recent);
+    }
 }

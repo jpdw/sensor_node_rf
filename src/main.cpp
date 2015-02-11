@@ -137,7 +137,7 @@ void showinfo(void){
             Serialprint("\r\n");
         }else{
             //Serial.print("  ");
-            Serialprint("  \r\n");
+            Serialprint("  ");
         }
     } while (++i<FIXED_SCHEDULED_SLOTS);
     if((i)% INFO_DISP_SCHED_WIDE !=0){
@@ -239,6 +239,31 @@ void show_sensors(){
     onewire_debug();
 }
 
+/* Set a value in eeprom
+ *
+ */
+void set_eeprom(){
+    uint8_t value;
+
+    // get address
+    uint16_t address = EVM_RF_CHNNL;
+    // get current value & display
+    value = eeprom_read_byte((unsigned char*)address);
+    Serial.print("Current value for address ");
+    Serial.print(address);
+    Serial.print(" is ");
+    Serial.println(value);
+    // get new value
+    if (value == 0x02){
+        value = 0x4c; /* live channel */
+    }else{
+        value = 0x02; /* dev channel */
+    }
+    Serial.print("Setting to ");
+    Serial.println(value);
+    // program eeprom
+    eeprom_write_byte((unsigned char*)address, value);
+}
 /*
  * power_management
  *
@@ -393,12 +418,13 @@ void setup(){
         //console_register("web",&cb_request_temp_retrieval);
         console_register("info",&showinfo);
         console_register("debg",&debug);
-        console_register("sens",&show_sensors);
+        //console_register("sens",&show_sensors);
         //console_register("print",&print_test);
         //console_register("xaph",&xap_send_hbeat);
         console_register("call",&radio_loop);
         console_register("run",&scheduler_run);
         console_register("stop",&scheduler_stop);
+        console_register("prom",&set_eeprom);
 
         console_start();
     }

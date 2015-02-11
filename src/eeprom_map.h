@@ -16,7 +16,6 @@
 #define EVM_MAP_VER 1			//     1     : version of map (in case this changes...)
 #define EVM_INITFLAGS0 2        //     1     : flags used at initialisation to enable/disable things
 #define EVM_RF_CHNNL 3          //     1     : RF channel to use (if unset, use default)
-#define EVM_HW_MODEPIN 4        //     1     : (arduino) pin # to read hw mode from
 
 
 // =====================
@@ -27,7 +26,7 @@
 #define EVM_INITFLAGS0_BF_DEBUG_ENABLED 0 // : if set, debug=true at boot
 #define EVM_INITFLAGS0_BF_OLED_ENABLED 1  // : if set, enable oled display o/p
 #define EVM_INITFLAGS0_BF_SERIAL_ENABLED 2// : if set, enable serial/console
-#define EVM_INITFLAGS0_BF_HW_MODE 3       // : HW_MODE unless HW_MODEPIN != 0
+#define EVM_INITFLAGS0_BF_HW_MODE 3       // : HW mode; 1 = sender (remote); 0 = receiver (base)
 
 // EVM_INITFLAGS - Bits for initflags
 //#define EVM_INITFLAGS0_BF_INITSCHED 0  // b0 high = Initialise scheduler jobs

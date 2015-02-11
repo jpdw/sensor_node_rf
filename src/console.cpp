@@ -191,3 +191,25 @@ void console_cmd_help(){
 		i++;
 	}while(i<FIXED_COMMAND_SLOTS);
 }
+
+/* return an integer from console buffer based on
+ * given argument index
+ */
+/*
+void console_return_argv(uint8_t index){
+    // look for <index> spaces and then atoi the buffer
+    uint8_t pos = 0;
+    bool bExit = false;
+
+    while((pos<CONSOLE_RX_BUFR)&&(bExit==false)){
+        if(console_rxinc[pos]!=' '){
+            Serial.print("Pos");
+        }
+    }
+    sscanf()
+    sscanf("123","%hd",&address);
+
+    Serial.print("Address = ");
+    Serial.print(address);
+}
+*/

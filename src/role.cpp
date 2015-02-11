@@ -19,8 +19,21 @@
  *  Put result in to 'role_mode' global
 */
 
+/*
+void is_set(int address, uint8_t bit){
+    // get the byte from eeprom
+    uint8_t i = eeprom_read_byte((unsigned char*)address);
+    // create mask
+    uint8_t mask = 1 << bit
+    if ( i & mask )
+
+}
+*/
+
 void set_role_mode(void){
-    //    uint8_t i = eeprom_read_byte((unsigned char*)EVM_MAP_VER);
+//    uint8_t i = eeprom_read_byte((unsigned char*)EVM_MAP_VER);
+    // Mask the correct bit
+//    if (i & (1<<EVM_INITFLAGS0_BF_HW_MODE))
 
     pinMode(HW_ROLE_PIN, INPUT);    // set up the role pin
     digitalWrite(HW_ROLE_PIN,HIGH); // Change this to LOW/HIGH instead of using an external pin

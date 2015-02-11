@@ -36,7 +36,7 @@
   #undef display
   #define serial
   #define opt_onewire
-  #define lowpower
+//  #define lowpower
 #else
   #undef network
   #define display
