@@ -50,6 +50,7 @@
 #include "eeprom_map.h"
 #include "role.h"
 #include "streamprint.h"
+#include "reboot.h"
 
 // Declare additional external functions here
 extern void radio_loop();
@@ -67,6 +68,12 @@ bool enable_send_led;     // if true, flash led on each send
 
 char timestamp[7] = {__BI__TIMESTAMP_STR};
 char datestamp[7] = {__BI__DATESTAMP_STR};
+
+// Execution of commands sent from base node to remote node
+extern AckPayload ack_payload;
+
+
+bool bReboot;               // cause remote node to reboot?
 
 role_e role;                                                            // The role of the current running sketch
 
@@ -219,6 +226,15 @@ void flash_led_blue(){
  * Generic place to test stuff
  */
 void test(){
+    // set a flag that will be read in the radio mode and used to cause
+    // the target (remote node) to reboot
+    if (bReboot == false){
+        Serial.print("Setting bReboot to true");
+        bReboot = true;
+    }else{
+        Serial.print("Setting bReboot to false");
+        bReboot = false;
+    }
 }
 
 /*
@@ -421,7 +437,7 @@ void setup(){
         //console_register("sens",&show_sensors);
         //console_register("print",&print_test);
         //console_register("xaph",&xap_send_hbeat);
-        console_register("call",&radio_loop);
+        console_register("test",&test);
         console_register("run",&scheduler_run);
         console_register("stop",&scheduler_stop);
         console_register("prom",&set_eeprom);
@@ -442,6 +458,8 @@ void setup(){
         // start certain scheduler jobs (not in lowpower)
         scheduler_run();
     }
+
+    bReboot = false;
 }
 
 #ifdef lowpower
@@ -498,6 +516,23 @@ void loop(){
         counter=0;
     }
 
+    // Process any ack_payload commands
+    switch(ack_payload.command){
+        case 0x01:{ /* reboot */
+            reboot();
+            break;
+        }
+        case 0x04:{ /* enable send-led */
+            enable_send_led=true;
+            break;
+        }
+        case 0x05:{ /* disable send-led */
+            enable_send_led=false;
+            break;
+        }
+    }
+
+
 }
 
 #else
@@ -523,6 +558,23 @@ unsigned long last=0;
         console_handle_serial_reception();	// process new chars received on serial
 #endif
 
+        switch(ack_payload.command){
+            case 0x01: /* reboot */{
+                Serial.print("Rebooting....");
+                reboot();
+                break;
+            }
+            case 0x04:{ /* enable send-led */
+                enable_send_led=true;
+                break;
+            }
+            case 0x05:{ /* disable send-led */
+                enable_send_led=false;
+                break;
+            }
+        }
+
+
         lt=micros()-last; // millis for last run
         last=micros();
 
@@ -545,12 +597,12 @@ unsigned long last=0;
 // just adding -ffreestanding to the C & CPP flags seems to have saved 2 bytes of progmem!
 int main(void)
 {
-	init();
-	setup();
-	// Atmel recommended optimal never-ending loop (see above url)
-	for (;;)
-		loop();
-	return 0;
+    init();
+    setup();
+    // Atmel recommended optimal never-ending loop (see above url)
+    for (;;)
+        loop();
+    return 0;
 }
 
 

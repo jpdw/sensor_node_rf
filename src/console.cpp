@@ -19,10 +19,7 @@
 #include <Arduino.h>
 #include "HardwareSerial.h"
 #include "console.h"
-
-// ?? move elsewhere??
-void(* resetFunc)(void) = 0; //declare reset function @ address 0
-void reboot(){ resetFunc();} //function to call the above... hacky, can prob be improved
+#include "reboot.h"
 
 /*
  * Primatives for functions not needed outside of this module

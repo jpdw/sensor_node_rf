@@ -23,6 +23,11 @@ extern bool role_is_receiver(void);
 extern bool radio_data_ready;   /* indicates radio data in payload from ISR */
 
 
-
+struct AckPayload
+{
+  unsigned char command;
+  unsigned char data[8];
+};
+extern AckPayload ack_payload;
 
 #endif /* RADIO_H_ */

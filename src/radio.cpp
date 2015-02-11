@@ -25,6 +25,7 @@ const char* role_friendly_name[] = { "invalid", "Sender", "Receiver"};  // The d
 
 // external flag - whether to output debug info
 extern bool mode_debug;
+extern bool bReboot;
 
 bool radio_data_ready;
 
@@ -52,6 +53,14 @@ struct Payload
   float temperature;      // latest measured temperature
 };
 Payload payload;
+
+// Create an 8-byte buffer for AckPayload
+struct AckPayload
+{
+  unsigned char command;
+  unsigned char data[8];
+};
+AckPayload ack_payload;
 
 
 /****************************************************************************
@@ -132,10 +141,14 @@ float remote_temperature_value(void){
     return(payload.temperature);
 }
 
-// Copied from pingpair_irq check_radio
-// This is the pseudo ISR that is defined as the callback in the Arduino
-// interrupt call in radio_setup
+union buffer2int32 {
+    unsigned char byte[4];
+    uint32_t integer32;
+};
 
+/*
+ *  This is the pseudo ISR that is the callback in the Arduino interrupt attach
+ */
 void cb_check_radio(void){
 
     bool tx,fail,rx;
@@ -153,16 +166,40 @@ void cb_check_radio(void){
         }
     }
 
-    if ( rx || radio.available()){                      // Did we receive a message?
+    // Was a message received ?
+    if ( rx || radio.available()){
 
+        /*
+         * If we're the sender (remote node)
+         */
         if ( role == role_sender ) {                      // If we're the sender, we've received an ack payload
-            radio.read(&message_count,sizeof(message_count));
-            if(mode_debug){
-                printf("Ack:%lu\n\r",message_count);
+            // Get the message copied
+            radio.read(&ack_payload,sizeof(ack_payload));
+            // interpret ack payload command byte
+            switch((uint8_t)ack_payload.command){
+                case 0xFF: {
+                    if(mode_debug){
+                        buffer2int32 buffer;
+                        buffer.byte[0]=ack_payload.data[0];
+                        buffer.byte[1]=ack_payload.data[1];
+                        buffer.byte[2]=ack_payload.data[2];
+                        buffer.byte[3]=ack_payload.data[3];
+                        printf("Ack:%lu\n\r",buffer.integer32);
+                    }
+                    break;
+                }
+                case 0x01: {
+                    if(mode_debug){
+                        printf("Reboot command\n\r");
+                    }
+                    break;
+                }
             }
         }
 
-
+        /*
+         * If we're the receiver (base node)
+         */
         if ( role == role_receiver ) {                    // If we're the receiver, we've received a time message
             radio.read( &payload, sizeof(Payload) );
             if(mode_debug){
@@ -170,7 +207,29 @@ void cb_check_radio(void){
             }
 
             // Send back the *sender* an ack payload containing a simple counter
-            radio.writeAckPayload( 1, &message_count, sizeof(message_count) );  // Add an ack packet for the next time around.  This is a simple
+            if (bReboot==false){
+                // No specific ack payload so send an OK followed by message_count
+                ack_payload.command = 0xFF;
+                ack_payload.data[0] = (message_count >> 24) & 0xFF;
+                ack_payload.data[1] = (message_count >> 16) & 0xFF;
+                ack_payload.data[2] = (message_count >> 8) & 0xFF;
+                ack_payload.data[3] = message_count & 0xFF;
+                radio.writeAckPayload( 1, &ack_payload, 5 );
+            }else{
+                printf("Sending command 0x01");
+                bReboot=false;
+                // Send full ackpayload buffer
+                // Set command to 0x01
+                ack_payload.command = 0x01;
+                ack_payload.data[0] = (message_count >> 24) & 0xFF;
+                ack_payload.data[1] = (message_count >> 16) & 0xFF;
+                ack_payload.data[2] = (message_count >> 8) & 0xFF;
+                ack_payload.data[3] = message_count & 0xFF;
+                radio.writeAckPayload( 1, &ack_payload, 5 );
+
+                //radio.writeAckPayload( 1, &ack_payload, sizeof(ack_payload) );  // Add an ack packet for the next time around.  This is a simple
+            }
+
             ++message_count;                                // packet counter
 
             // signal to the main loop that we have new data
